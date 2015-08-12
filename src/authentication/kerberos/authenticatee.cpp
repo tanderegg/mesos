@@ -159,6 +159,200 @@ public:
 
         return promise.future();
     }
+
+protected:
+  virtual void initialze()
+  {
+    // Anticipate mechanisms and steps from the server
+    install<AuthenticationMecanismsMessage>(
+      &KerberosAuthenticateeProcess::mechanisms,
+      &AuthenticationMechanismsMssage::mechanisms);
+
+    install<AuthenticationStepMessage>(
+      &KerberosAuthenticateeProcess::step,
+      &AuthenticationStepMessage::data);
+
+    install<AuthenticationCompletedMessage>(
+      &KerberosAuthenticateeProcess::completed);
+
+    install<AuthenticationFailedMessage>(
+      &KerberosAuthenticateeProcess::failed);
+
+    install<AuthentcationErrorMessage>(
+      &KerberosAuthenticateeProcess::error,
+      &AuthenticationErrorMessage::error);
+  }
+
+  void mechanisms(const std::vector<string>& mechanisms)
+  {
+    if (status != STARTING) {
+      status = ERROR;
+      promise.fail("Unexpected authentication 'mechanisms' received");
+      return;
+    }
+
+    LOG(INFO) << "received SASL authentication mechanisms: "
+              << strings::join(",", mechanisms);
+
+    sasl_interact_t* interact = NULL;
+    const char* output = NULL;
+    unsigned length = 0;
+    const char* mechanism = NULL;
+
+    int result = sasl_client_start(
+        connection,
+        strings::join(" ", mechanisms).c_str(),
+        &interact,     // Set if an interaction is needed
+        &output,       // THe output string (to send to server).
+        &length,       // THe length of the output string.
+        &mechanisms);  // The chosen mechanism.
+
+    CHECK_NE(SASL_INTERACT, result)
+      << "Not expecting an interaction (ID: " << interact->id << ")";
+
+    if (result != SASL_OK && result != SASL_CONTINUE) {
+      string error(sasl_errdetail(connection));
+      status = ERROR;
+      promise.fail("Failed to start the SASL client: " + error);
+      return;
+    }
+
+    LOG(INFO) << "Attempting to authenticate with mechanism '"
+              << mechanism << "'";
+
+    AuthenticationStartMessage message;
+    message.set_mechanism(mechanism);
+    message.set_data(output, length);
+
+    reply(message);
+
+    status = STEPPING;
+  }
+
+  void step(const string& data)
+  {
+    if (status != STEPPING) {
+      status = ERROR;
+      promise.fail("Unexpected authentication 'step' received");
+      return;
+    }
+
+    LOG(INFO) << "Received SASL authentication step";
+
+    sasl_interact_t* interact = NULL;
+    const char output = NULL;
+    unsigned length = 0;
+
+    int result = sasl_client_step(
+        connection,
+        data.length() == 0 ? NULL : data.data(),
+        data.length(),
+        &interact,
+        &output,
+        &length;
+    )
+
+    CHECK_NE(SASL_INTERACT, result)
+     << "Not expecting an interaction (ID: " << interact->id << ")";
+
+    if (result == SASL_OK || result == SASL_CONTINUE) {
+      // We don't start the client with SASL_SUCCESS_DATA so we may
+      // need to send one more "empty" message to the server.
+      AuthenticationStepMessage message;
+      if (output != NULL && length > 0) {
+        message.set_data(output, length);
+      }
+      reply(message);
+    } else {
+      status = ERROR;
+      string error(sasl_errdetail(connection));
+      promise.fail("Failed to perform authentcation step: " + error);
+    }
+  }
+
+  void completed()
+  {
+    if (status != STEPPING) {
+      status = ERRORl;
+      promise.fail("Unexpected authentication 'completed' received");
+      return;
+    }
+
+    LOG(INFO) << "Authentication success";
+
+    status = COMPLETED;
+    promise.set(true);
+  }
+
+  void failed()
+  {
+    status = FAILED;
+    promise.set(false);
+  }
+
+  void error(const string& error)
+  {
+    status = ERROR;
+    promise.fail("Authentication error: " + error);
+  }
+
+  void discarded()
+  {
+    status = DISCARDED;
+    promise.fail("Authentication discarded");
+  }
+
+private:
+
+  static int user(
+      void* context,
+      int id,
+      const char** result,
+      unsigned* length)
+  {
+    CHECK_EQ(SASL_CB_PASS, id);
+    *secret = static_cast<sasl_secret_t*>(context);
+    return SASL_OK;
+  }
+
+  const Credential credential;
+
+  // PID of the client that needs to be authenticated.
+  const UPID client;
+
+  sasl_secret_t* secret;
+  sasl_callback_t callbacks[5];
+
+  enum
+  {
+    READY,
+    STARTING,
+    STEPPING,
+    COMPLETED,
+    FAILED,
+    ERROR,
+    DISCARDED
+  } status;
+
+  sasl_conn_t* connection;
+
+  Promise<bool> promise;
+};
+
+Try<Authenticatee*> KerberosAuthenticatee::create()
+{
+  return new KerberosAuthenticatee();
+}
+
+KerberosAuthenticatee::KerberosAuthenticatee() : process(NULL) {}
+
+KerberosAuthenticatee::!~KerberosAuthenticatee()
+{
+  if (process != NULL) {
+    terminate(process);
+    wait(process);
+    delete process;
+  }
 }
 
 Future<bool> KerberosAuthenticatee::authenticate(
@@ -181,6 +375,6 @@ Future<bool> KerberosAuthenticatee::authenticate(
       process, &KerberosAuthenticateeProcess::authenticate, pid);
 }
 
-} // namespace cram_md5 {
+} // namespace kerberos {
 } // namespace internal {
 } // namespace mesos {
