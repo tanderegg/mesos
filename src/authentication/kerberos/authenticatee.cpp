@@ -205,7 +205,7 @@ protected:
         &interact,     // Set if an interaction is needed
         &output,       // THe output string (to send to server).
         &length,       // THe length of the output string.
-        &mechanisms);  // The chosen mechanism.
+        &mechanism);  // The chosen mechanism.
 
     CHECK_NE(SASL_INTERACT, result)
       << "Not expecting an interaction (ID: " << interact->id << ")";
@@ -249,8 +249,7 @@ protected:
         data.length(),
         &interact,
         &output,
-        &length;
-    )
+        &length);
 
     CHECK_NE(SASL_INTERACT, result)
      << "Not expecting an interaction (ID: " << interact->id << ")";
