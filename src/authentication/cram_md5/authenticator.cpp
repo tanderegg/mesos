@@ -430,8 +430,8 @@ public:
     if (sessions.contains(pid)){
       VLOG(1) << "Authentication session cleanup for " << pid;
       sessions.erase(pid);
+    }
   }
-}
 
 private:
   hashmap <UPID, Owned<CRAMMD5AuthenticatorSession>> sessions;

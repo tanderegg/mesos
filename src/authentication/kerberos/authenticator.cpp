@@ -46,27 +46,18 @@ namespace kerberos {
 using namespace process;
 using std::string;
 
-class KerberosAuthenticatorSessionProcess :
-  public ProtobufProcess<KerberossAutheneticatorsessionProcess>
+
+virtual KerberosAuthenticatorSessionProcess::~KerberosAuthenticatorSessionProcess()
 {
-public:
-  explicit KerberosAuthenticatorSessionProcess(const UPID& _pid)
-    : ProcessBase(ID::generate("kerberos_authenticator_session")),
-      status(READY),
-      pid(_pid),
-      connection(NULL) {}
-
-  virtual ~KerberosAUthenticatorSessionProcess()
-  {
-    if (connection != NULL) {
-      sasl_dispose(&connection);
-    }
+  if (connection != NULL) {
+    sasl_dispose(&connection);
   }
+}
 
-  virtual void finalize()
-  {
-    discarded(); // Fail the promise
-  }
+virtual void KerberosAuthenticatorSessionProcess::finalize()
+{
+  discarded(); // Fail the promise
+}
 
   Future<Option<string>> authenticate()
   {
@@ -173,9 +164,375 @@ public:
       &AuthenticationStepMessage::data);
   }
 
+  virtual void exited(const UPID& _pid)
+  {
+    if (pid == _pid) {
+      status = ERROR;
+      promise.fail("Failed to communicate with authenticatee");
+    }
+  }
 
+  void start(const string& mechanism, const string& data)
+  {
+    if (status != STARTING) {
+      AuthenticationErrorMessage message;
+      message.set_error("Unexpected authentication 'start' received");
+      send(pid, message);
+      status = ERROR;
+      promise.fail(message.error());
+      return;
+    }
+
+    LOG(INFO) << "Received SASL authentication start";
+
+    // Start the server.
+    const char* output = NULL;
+    unsigned length = 0;
+
+    int result = sasl_server_start(
+      connection,
+      mechanism.c_str(),
+      data.length() == 0 ? NULL : data.data(),
+      data.length(),
+      &output,
+      &length);
+
+    handle(result, output, length);
+  }
+
+  void step(const string& data)
+  {
+    if (status != STEPPING) {
+      AuthenticationErrorMessage message;
+      message.set_error("Unexpected authentication 'step' received");
+      send(pid, message);
+      status = ERROR;
+      promise.fail(message.error());
+      return;
+    }
+
+    LOG(INFO) << "Received SASL authentication step";
+
+    const char* output = NULL;
+    unsigned length = 0;
+
+    int result = sasl_server_step(
+      connection,
+      data.length() == 0 ? NULL : data.data(),
+      data.length(),
+      &output,
+      &length);
+
+    handle(result, output, length);
+  }
+
+  void discarded()
+  {
+    status = DISCARDED;
+    promise.fail("Authentication discarded");
+  }
+
+private:
+  static int getopt(
+      void *context,
+      const char* plugin,
+      const char* option,
+      const char** result,
+      unsigned* length)
+  {
+    bool found = false;
+    if (string(option) == "auxprop_plugin") {
+      *result = "in-memory-auxprop";
+      found = true;
+    } else if (string(option) == "mech_list") {
+      *result = "CRAM-MD5";
+      found = true;
+    } else if (string(option)) == "pwcheck_method") {
+      *result = "auxprop";
+      found = true;
+    }
+
+    if (found && length != NULL) {
+      *length = strlen(*result);
+    }
+
+    return SASL_OK;
+  }
+
+  // Callback for cannonicalizing the username(principal). We use it
+  // to record the principal in KerberosAuthenticator.
+  static int canonicalize(
+    sasl_conn_t* connection,
+    void* context,
+    const char* input,
+    unsigned inputLength,
+    unsigned flags,
+    const char* userRealm,
+    char* output,
+    unsigned outputMaxLength,
+    unsigned* outputLength)
+  {
+    CHECK_NOTNULL(input);
+    CHECK_NOTNULL(contetx);
+    CHECK_NOTNULL(output);
+
+    // Save the input
+    Option<string>* principal =
+      static_cast<Option<string>*>(context);
+    CHECK(principal->isNone());
+    *principal = string(input, inputLength);
+
+    // Tell SASL that the canonical username is the same as The
+    // client-supplied username.
+    memcpy(output, input, inputLength);
+    *outputLength = inputLength;
+
+    return SASL_OK;
+  }
+
+  // Helper for handling result of serer start and step.
+  void hnadle(int result, const char* output, unsigned length)
+  {
+    if (result == SASL_OK) {
+      // Principal must have been set if authentication succeeded
+      CHECK_SOME(principal);
+
+      LOG(INFO) << "Authentication success";
+      // Note that we're not using SASL_SUCCESS_DATA which means that
+      // we should not have any data to send when we get a SASL_OK.
+      CHECK(output == NULL);
+      send(pid, AuthenticationCompletedMessage());
+      status = COMPLETED;
+      promise.set(principal);
+    } else if (result == SASL_CONTINUE) {
+      LOG(INFO) << "Authentication requires more steps";
+      AuthenticationStepMessage message;
+      message.set_data(CHECK_NOTNULL(output), length);
+      send(pid, message);
+      status = STEPPING;
+    } else if (result == SASL_NOUSER || result == SASL_BADAUTH) {
+      LOG(WARNING) << "Authentication failure: "
+                   << sasl_errstring(result, NULL, NULL);
+      send(pid, AuthenticationFailedMessage());
+      status = FAILED;
+      promise.set(Option<string>::none());
+    } else {
+      LOG(ERROR) << "Authentication error: "
+                 << sasl_errstring(result, NULL, NULL);
+      AuthenticationErrorMessage message;
+      string error(sasl_errdetail(connection));
+      message.set_error(error);
+      send(pid, message);
+      status = ERROR;
+      promise.fail(message.error());
+    }
+  }
+
+  enum
+  {
+    READY,
+    STARTING,
+    STEPPING,
+    COMPLETED,
+    FAILED,
+    ERROR,
+    DISCARDED
+  } status;
+
+  sasl_callback_t callbacks[3];
+
+  const UPID pid;
+
+  sasl_conn_t* connection;
+
+  Promise<Option<string>> promise;
+
+  Option<string> principal;
+};
+
+class KerberosAuthenticatorSession
+{
+public:
+  explicit KerberosAuthenticatorSession(const UPID& pid)
+  {
+    process = new KerberosAuthenticatorSessionProcess(pid);
+    spawn(process);
+  }
+
+  virtual ~KerberosAuthenticatorSession()
+  {
+    terminate(process, false);
+    wait(process);
+    delete process;
+  }
+
+  virtual Future<Option<string>> authenticate()
+  {
+    return dispatch(
+        process, &KerberosAuthenticatorSessionProcess::authenticate);
+  }
+
+private:
+  KerberosAuthenticatorSessionProcess* process;
+};
+
+class KerberosAuthenticatorProcess :
+  public Process<KerberosAuthenticatorProcess>
+{
+public:
+  KerberosAuthenticatorProcess() :
+    ProcessBase(ID::generate("kerberos_authenticator")) {}
+
+  virtual ~KerberosAuthenticatorProcess() {}
+
+  Future<Option<string>> authenticate(const UPID& pid)
+  {
+    VLOG(1) << "Starting authenticatino session for " << pid;
+
+    if (sessions.contains(pid)) {
+      return Failure("authentication session already active");
+    }
+
+    Owned<KerberosAuthenticatorSession> session(
+      new KerberosAuthenticatorSession(pid));
+
+    sessions.put(pid, session);
+
+    return session->authenticate()
+      .onAny(defer(self(), &Self::_authenticate, pid));
+  }
+
+  virtual void _authenticate(const UPID& pid)
+  {
+    if (sessions.contains(pid)) {
+      VLOG(1) << "Authentication sessions cleanupf or " << pid;
+      sessions.erase(pid);
+    }
+  }
+
+private:
+  hashmap <UPID, Owned<KerberosAuthenticatorSession>> sessions;
+};
+
+
+namespace secrets {
+
+// Loads secrests (principal -> secret) into the in-memory auxillary
+// property plugin that is used by the authenticators.
+void load(const std::map<string, string>& secrets)
+{
+  Multimap<string, Property> properties;
+
+  foreachpair (const string& principal,
+               const string& secret, secrets) {
+    Property property;
+    property.name = SASL_AUX_PASSWORD_PROP;
+    property.values.push_back(secret);
+    properties.put(principal, property);
+  }
+
+  InMemoryAuxiliaryPropertyPlugin::load(properties);
 }
 
+void load(const Credentials& credentials)
+{
+  std::map<string, string> secrets;
+  foreach(const Credential& credential, credentials.credentials()) {
+    secrets[credential.principal()] = credential.secret();
+  }
+  load(secrets);
 }
+
+} // namespace secrets {
+
+Try<Authenticator*> KerberosAuthenticator::create()
+{
+  return new KerberosAuthenticator();
 }
+
+KerberosAuthenticator::KerberosAuthenticator() : process(NULL) {}
+
+KerberosAuthenticator::~KerberosAuthenticator()
+{
+  if (process != NULL) {
+    terminate(process);
+    wait(process);
+    delete process;
+  }
 }
+
+
+Try<Nothing> KerberosAuthenticator::initialize(
+  const Option<Credentials>& credentials)
+{
+  static Once* initialize = new Once();
+
+  // The 'error' is set at most once per os process.
+  // To allow subsequent calls to return the possibly set Error
+  // object, we make this a static pointer.
+  static Option<Error>* error = new Option<Error>();
+
+  if (process != NULL) {
+    return Error("Authenticator intiialzed already");
+  }
+
+  if (credentials.isSome()) {
+    // Load the credentials into the auxiliary memory plugin's storage.
+    // It is necessary for this to be re-entrant as our tests may
+    // re-load credentials.
+    secrets::load(credentials.get());
+  } else {
+    LOG(WARNING) << "No credentials provided, authentication requests will be "
+                 << "refused.";
+  }
+
+  // Initialize SASL and add the auxiliary memory plugin.  We must
+  // not do this moer than once per os-process.
+  if (!initialzie->once()) {
+    LOG(INFO) << "Initializing server SASL";
+
+    int result = sasl_server_init(NULL, "mesos");
+
+    if (result != SASL_OK) {
+      *error = Error(
+          string("Failed to initialize SASL: ") +
+          sasl_errstring(result, NULL, NULL));
+    } else {
+      result = sasl_auxprop_add_plugin(
+        InMemoryAuxiliaryPropertyPlugin::name(),
+        &InMemoryAuxiliaryPropertyPlugin::initialize);
+
+      if (result != SASL_OK) {
+        *error = Error(
+            string("Failed to add in-memory auxiliary property plugin: ") +
+            sasl_errstring(result, NULL, NULL));
+      }
+    }
+
+    initialze->done();
+  }
+
+  if (error->isSome()) {
+    return error->get();
+  }
+
+  process = new KerberosAuthenticatorProcess();
+  spawn(process);
+
+  return Nothing();
+}
+
+
+Future<Option<string>> KerberosAuthenticator::authenticate(
+    const UPID& pid)
+{
+  if (process == NULL) {
+    return Failure("authenticator not initialized");
+  }
+  return dispatch(
+    process, &KerberosAuthenticatorProcess::authenticate, pid);
+}
+
+} // namespace kerberos {
+} // namespace internal {
+} // namespace mesos {

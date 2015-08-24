@@ -55,6 +55,20 @@ private:
   KerberosAuthenticatorProcess* process;
 };
 
+class KerberosAuthenticatorSessionProcess :
+  public ProtobufProcess<KerberossAutheneticatorsessionProcess>
+{
+public:
+  explicit KerberosAuthenticatorSessionProcess(const UPID& _pid)
+    : ProcessBase(ID::generate("kerberos_authenticator_session")),
+      status(READY),
+      pid(_pid),
+      connection(NULL) {}
+
+  virtual ~KerberosAuthenticatorSessionProcess();
+  virtual void finalize();
+}
+
 } // namespace kerberos {
 } // namespace internal {
 } // namespace mesos {
