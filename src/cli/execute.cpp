@@ -38,6 +38,7 @@
 #include <stout/option.hpp>
 #include <stout/os.hpp>
 #include <stout/unreachable.hpp>
+#include <stout/strings.hpp>
 
 #include "common/parse.hpp"
 #include "common/protobuf_utils.hpp"
@@ -61,6 +62,8 @@ using mesos::v1::Environment;
 using mesos::v1::FrameworkID;
 using mesos::v1::FrameworkInfo;
 using mesos::v1::Image;
+using mesos::v1::Label;
+using mesos::v1::Labels;
 using mesos::v1::Offer;
 using mesos::v1::Resources;
 using mesos::v1::TaskInfo;
@@ -142,6 +145,10 @@ public:
         "Docker image that follows the Docker CLI naming <image>:<tag>."
         "(ie: ubuntu, busybox:latest).");
 
+    add(&appc_image,
+        "appc_image",
+        "AppC image, ie: example.com/myimage.");
+
     add(&containerizer,
         "containerizer",
         "Containerizer to be used (ie: docker, mesos)",
@@ -160,6 +167,7 @@ public:
   bool overwrite;
   bool checkpoint;
   Option<string> docker_image;
+  Option<string> appc_image;
   string containerizer;
 };
 
@@ -177,6 +185,7 @@ public:
       const string& _resources,
       const Option<string>& _uri,
       const Option<string>& _dockerImage,
+      const Option<string>& _appcImage,
       const string& _containerizer)
     : state(DISCONNECTED),
       frameworkInfo(_frameworkInfo),
@@ -188,6 +197,7 @@ public:
       resources(_resources),
       uri(_uri),
       dockerImage(_dockerImage),
+      appcImage(_appcImage),
       containerizer(_containerizer),
       launched(false) {}
 
@@ -272,6 +282,19 @@ protected:
         } else {
           // TODO(gilbert): Treat 'command' as executable value and arguments.
           commandInfo->set_shell(false);
+
+          if (command.isSome()) {
+            vector<string> arguments = strings::split(command.get(), ",");
+            bool is_executable = true;
+
+            foreach(const string arg, arguments) {
+              if (is_executable) {
+                commandInfo->set_value(arg);
+                is_executable = false;
+              }
+              commandInfo->add_arguments(arg);
+            }
+          }
         }
 
         if (environment.isSome()) {
@@ -311,6 +334,45 @@ protected:
             dockerInfo.set_image(dockerImage.get());
 
             containerInfo.mutable_docker()->CopyFrom(dockerInfo);
+          } else {
+            EXIT(EXIT_FAILURE)
+              << "Unsupported containerizer: " << containerizer;
+
+            return;
+          }
+
+          task.mutable_container()->CopyFrom(containerInfo);
+        }
+
+        if (appcImage.isSome()) {
+          ContainerInfo containerInfo;
+
+          if (containerizer == "mesos") {
+            containerInfo.set_type(ContainerInfo::MESOS);
+
+            ContainerInfo::MesosInfo mesosInfo;
+
+            Image mesosImage;
+            mesosImage.set_type(Image::APPC);
+            mesosImage.mutable_appc()->set_name(appcImage.get());
+
+
+            Label osLabel;
+            osLabel.set_key("os");
+            osLabel.set_value("linux");
+
+            Label archLabel;
+            archLabel.set_key("arch");
+            archLabel.set_value("amd64");
+
+            Labels labels;
+            labels.add_labels()->CopyFrom(osLabel);
+            labels.add_labels()->CopyFrom(archLabel);
+
+            mesosImage.mutable_appc()->mutable_labels()->CopyFrom(labels);
+            mesosInfo.mutable_image()->CopyFrom(mesosImage);
+
+            containerInfo.mutable_mesos()->CopyFrom(mesosInfo);
           } else {
             EXIT(EXIT_FAILURE)
               << "Unsupported containerizer: " << containerizer;
@@ -362,6 +424,8 @@ protected:
       Event event = events.front();
       events.pop();
 
+      cout << "Received event: " << event.type() << "." << endl;
+
       switch (event.type()) {
         case Event::SUBSCRIBED: {
           frameworkInfo.mutable_id()->
@@ -374,6 +438,7 @@ protected:
         }
 
         case Event::OFFERS: {
+          cout << "Received offers..." << endl;
           offers(google::protobuf::convert(event.offers().offers()));
           break;
         }
@@ -449,6 +514,7 @@ private:
   const string resources;
   const Option<string> uri;
   const Option<string> dockerImage;
+  const Option<string> appcImage;
   const string containerizer;
   bool launched;
   Owned<Mesos> mesos;
@@ -570,10 +636,21 @@ int main(int argc, char** argv)
     uri = "hdfs://" + flags.hdfs + path;
   }
 
+  if (flags.docker_image.isSome() && flags.appc_image.isSome()) {
+    cerr << "Cannot use both Docker and AppC images simultaneously." << endl;
+    return EXIT_FAILURE;
+  }
+
   Option<string> dockerImage;
 
   if (flags.docker_image.isSome()) {
     dockerImage = flags.docker_image.get();
+  }
+
+  Option<string> appcImage;
+
+  if (flags.appc_image.isSome()) {
+    appcImage = flags.appc_image.get();
   }
 
   FrameworkInfo frameworkInfo;
@@ -592,6 +669,7 @@ int main(int argc, char** argv)
         flags.resources,
         uri,
         dockerImage,
+        appcImage,
         flags.containerizer));
 
   process::spawn(scheduler.get());
