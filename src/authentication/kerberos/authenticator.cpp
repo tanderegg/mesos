@@ -1,20 +1,18 @@
-/**
- * Licensed to the Apache Software Foundation (ASF) under one
- * or more contributor license agreements.  See the NOTICE file
- * distributed with this work for additional information
- * regarding copyright ownership.  The ASF licenses this file
- * to you under the Apache License, Version 2.0 (the
- * "License"); you may not use this file except in compliance
- * with the License.  You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 
 #include <stddef.h>   // For size_t needed by sasl.h
 
@@ -39,6 +37,14 @@
 #include "authentication/kerberos/auxprop.hpp"
 #include "messages/messages.hpp"
 
+// We need to disable the deprecation warnings as Apple has decided
+// to deprecate all of CyrusSASL's functions with OS 10.11
+// (see MESOS-3030). We are using GCC pragmas also for covering clang.
+#ifdef __APPLE__
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+#endif
+
 namespace mesos {
 namespace internal {
 namespace kerberos {
@@ -46,18 +52,27 @@ namespace kerberos {
 using namespace process;
 using std::string;
 
-
-virtual KerberosAuthenticatorSessionProcess::~KerberosAuthenticatorSessionProcess()
+class KerberosAuthenticatorSessionProcess :
+  public ProtobufProcess<KerberossAutheneticatorsessionProcess>
 {
-  if (connection != NULL) {
-    sasl_dispose(&connection);
+public:
+  explicit KerberosAuthenticatorSessionProcess(const UPID& _pid)
+    : ProcessBase(ID::generate("kerberos_authenticator_session")),
+      status(READY),
+      pid(_pid),
+      connection(NULL) {}
+
+  virtual ~KerberosAuthenticatorSessionProcess()
+  {
+    if (connection != NULL) {
+      sasl_dispose(&connection);
+    }
   }
-}
 
-virtual void KerberosAuthenticatorSessionProcess::finalize()
-{
-  discarded(); // Fail the promise
-}
+  virtual void finalize()
+  {
+    discarded(); // Fail the promise
+  }
 
   Future<Option<string>> authenticate()
   {
@@ -88,7 +103,7 @@ virtual void KerberosAuthenticatorSessionProcess::finalize()
                     // NOTE: This does not affect Kerberos
         NULL, NULL, // IP address information strings.
         callbacks,  // Callbacks supported only for this connection.
-        0,          // Security flags (security laysers are enabled
+        0,          // Security flags (security layers are enabled
                     // using security properties, separately).
         &connection);
 
@@ -136,6 +151,7 @@ virtual void KerberosAuthenticatorSessionProcess::finalize()
       // Send authentication mechanisms.
       AuthenticationMechanismsMessage message;
       foreach (const string& mechanism, mechanisms) {
+        VLOG(1) << "Adding SASL mechanism: " << mechanism;
         message.add_mechanisms(mechanism);
       }
 
@@ -241,14 +257,8 @@ private:
       unsigned* length)
   {
     bool found = false;
-    if (string(option) == "auxprop_plugin") {
-      *result = "in-memory-auxprop";
-      found = true;
-    } else if (string(option) == "mech_list") {
-      *result = "CRAM-MD5";
-      found = true;
-    } else if (string(option)) == "pwcheck_method") {
-      *result = "auxprop";
+    if (string(option) == "mech_list") {
+      *result = "GSSAPI";
       found = true;
     }
 
@@ -273,7 +283,7 @@ private:
     unsigned* outputLength)
   {
     CHECK_NOTNULL(input);
-    CHECK_NOTNULL(contetx);
+    CHECK_NOTNULL(context);
     CHECK_NOTNULL(output);
 
     // Save the input
@@ -282,7 +292,7 @@ private:
     CHECK(principal->isNone());
     *principal = string(input, inputLength);
 
-    // Tell SASL that the canonical username is the same as The
+    // Tell SASL that the canonical username is the same as the
     // client-supplied username.
     memcpy(output, input, inputLength);
     *outputLength = inputLength;
@@ -290,8 +300,8 @@ private:
     return SASL_OK;
   }
 
-  // Helper for handling result of serer start and step.
-  void hnadle(int result, const char* output, unsigned length)
+  // Helper for handling result of server start and step.
+  void handle(int result, const char* output, unsigned length)
   {
     if (result == SASL_OK) {
       // Principal must have been set if authentication succeeded
@@ -387,7 +397,7 @@ public:
 
   Future<Option<string>> authenticate(const UPID& pid)
   {
-    VLOG(1) << "Starting authenticatino session for " << pid;
+    VLOG(1) << "Starting authenticatioo session for " << pid;
 
     if (sessions.contains(pid)) {
       return Failure("authentication session already active");
@@ -405,7 +415,7 @@ public:
   virtual void _authenticate(const UPID& pid)
   {
     if (sessions.contains(pid)) {
-      VLOG(1) << "Authentication sessions cleanupf or " << pid;
+      VLOG(1) << "Authentication sessions cleanup for " << pid;
       sessions.erase(pid);
     }
   }
@@ -413,37 +423,6 @@ public:
 private:
   hashmap <UPID, Owned<KerberosAuthenticatorSession>> sessions;
 };
-
-
-namespace secrets {
-
-// Loads secrests (principal -> secret) into the in-memory auxillary
-// property plugin that is used by the authenticators.
-void load(const std::map<string, string>& secrets)
-{
-  Multimap<string, Property> properties;
-
-  foreachpair (const string& principal,
-               const string& secret, secrets) {
-    Property property;
-    property.name = SASL_AUX_PASSWORD_PROP;
-    property.values.push_back(secret);
-    properties.put(principal, property);
-  }
-
-  InMemoryAuxiliaryPropertyPlugin::load(properties);
-}
-
-void load(const Credentials& credentials)
-{
-  std::map<string, string> secrets;
-  foreach(const Credential& credential, credentials.credentials()) {
-    secrets[credential.principal()] = credential.secret();
-  }
-  load(secrets);
-}
-
-} // namespace secrets {
 
 Try<Authenticator*> KerberosAuthenticator::create()
 {
@@ -476,18 +455,8 @@ Try<Nothing> KerberosAuthenticator::initialize(
     return Error("Authenticator intiialzed already");
   }
 
-  if (credentials.isSome()) {
-    // Load the credentials into the auxiliary memory plugin's storage.
-    // It is necessary for this to be re-entrant as our tests may
-    // re-load credentials.
-    secrets::load(credentials.get());
-  } else {
-    LOG(WARNING) << "No credentials provided, authentication requests will be "
-                 << "refused.";
-  }
-
   // Initialize SASL and add the auxiliary memory plugin.  We must
-  // not do this moer than once per os-process.
+  // not do this more than once per os-process.
   if (!initialzie->once()) {
     LOG(INFO) << "Initializing server SASL";
 
@@ -497,16 +466,6 @@ Try<Nothing> KerberosAuthenticator::initialize(
       *error = Error(
           string("Failed to initialize SASL: ") +
           sasl_errstring(result, NULL, NULL));
-    } else {
-      result = sasl_auxprop_add_plugin(
-        InMemoryAuxiliaryPropertyPlugin::name(),
-        &InMemoryAuxiliaryPropertyPlugin::initialize);
-
-      if (result != SASL_OK) {
-        *error = Error(
-            string("Failed to add in-memory auxiliary property plugin: ") +
-            sasl_errstring(result, NULL, NULL));
-      }
     }
 
     initialze->done();
@@ -536,3 +495,7 @@ Future<Option<string>> KerberosAuthenticator::authenticate(
 } // namespace kerberos {
 } // namespace internal {
 } // namespace mesos {
+
+#ifdef __APPLE__
+#pragma GCC diagnostic pop
+#endif

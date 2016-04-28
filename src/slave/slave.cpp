@@ -72,6 +72,7 @@
 #endif // __linux__
 
 #include "authentication/cram_md5/authenticatee.hpp"
+#include "authentication/kerberos/authenticatee.hpp"
 
 #include "common/build.hpp"
 #include "common/protobuf_utils.hpp"
@@ -1020,6 +1021,9 @@ void Slave::authenticate()
   if (authenticateeName == DEFAULT_AUTHENTICATEE) {
     LOG(INFO) << "Using default CRAM-MD5 authenticatee";
     authenticatee = new cram_md5::CRAMMD5Authenticatee();
+  } else if (authenticateeName == "kerberos") {
+    LOG(INFO) << "Using Kerberos authenticatee";
+    authenticatee = new kerberos::KerberosAuthenticatee();
   } else {
     Try<Authenticatee*> module =
       modules::ModuleManager::create<Authenticatee>(authenticateeName);

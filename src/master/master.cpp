@@ -71,6 +71,7 @@
 #include <stout/uuid.hpp>
 
 #include "authentication/cram_md5/authenticator.hpp"
+#include "authentication/kerberos/authenticator.hpp"
 
 #include "common/build.hpp"
 #include "common/protobuf_utils.hpp"
@@ -474,6 +475,7 @@ void Master::initialize()
     EXIT(EXIT_FAILURE) << "Multiple authenticators not supported";
   }
   if (authenticatorNames[0] != DEFAULT_AUTHENTICATOR &&
+      authenticatorNames[0] != "kerberos" &&
       !modules::ModuleManager::contains<Authenticator>(
           authenticatorNames[0])) {
     EXIT(EXIT_FAILURE)
@@ -489,6 +491,9 @@ void Master::initialize()
     LOG(INFO) << "Using default '" << DEFAULT_AUTHENTICATOR
               << "' authenticator";
     authenticator = new cram_md5::CRAMMD5Authenticator();
+  } else if (authenticatorNames[0] == "kerberos") {
+    LOG(INFO) << "Using Kerberos authenticator";
+    authenticator = new kerberos::KerberosAuthenticator();
   } else {
     Try<Authenticator*> module =
       modules::ModuleManager::create<Authenticator>(authenticatorNames[0]);

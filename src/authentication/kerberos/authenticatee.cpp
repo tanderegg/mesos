@@ -1,20 +1,18 @@
-/**
- * Licensed to the Apache Software Foundation (ASF) under one
- * or more contributor license agreements.  See the NOTICE file
- * distributed with this work for additional information
- * regarding copyright ownership.  The ASF licenses this file
- * to you under the Apache License, Version 2.0 (the
- * "License"); you may not use this file except in compliance
- * with the License.  You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 
 #include "authentication/kerberos/authenticatee.hpp"
 
@@ -59,6 +57,8 @@ public:
       const char* data = credential.secret().data();
       size_t length = credential.secret().length();
 
+      // Need to allocate the secret via 'malloc' because SASL is
+      // expecting the data appended to the end of the struct. *sigh*
       secret = (sasl_secret_t*) malloc(sizeof(sasl_secret_t) + length);
 
       CHECK(secret != NULL) << "Failed to allocate memory for secret";
@@ -135,7 +135,7 @@ public:
         int result = sasl_client_new(
             "mesos",    // Registered name of service.
             NULL,       // Server's FQDN.
-            NULL, NULL, // IP address information strigns.
+            NULL, NULL, // IP address information strings.
             callbacks,  // Callbacks supported only for this connection
             0,          // Security flags (security layers are enabled
                         // using security properties, separately).
@@ -166,7 +166,7 @@ protected:
     // Anticipate mechanisms and steps from the server
     install<AuthenticationMecanismsMessage>(
       &KerberosAuthenticateeProcess::mechanisms,
-      &AuthenticationMechanismsMssage::mechanisms);
+      &AuthenticationMechanismsMessage::mechanisms);
 
     install<AuthenticationStepMessage>(
       &KerberosAuthenticateeProcess::step,
@@ -302,7 +302,6 @@ protected:
   }
 
 private:
-
   static int user(
       void* context,
       int id,
