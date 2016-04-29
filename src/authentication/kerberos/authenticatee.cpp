@@ -19,6 +19,7 @@
 #include <stddef.h>   // For size_t needed by sasl.h.
 
 #include <sasl/sasl.h>
+#include <sasl/saslplug.h>
 
 #include <string>
 
@@ -135,9 +136,13 @@ public:
         callbacks[3].proc = (int(*)()) &pass;
         callbacks[3].context = (void*) secret;
 
-        callbacks[4].id = SASL_CB_LIST_END;
-        callbacks[4].proc = NULL;
+        callbacks[4].id = SASL_CB_GETPATH;
+        callbacks[4].proc = (int(*)()) &getpath;
         callbacks[4].context = NULL;
+
+        callbacks[5].id = SASL_CB_LIST_END;
+        callbacks[5].proc = NULL;
+        callbacks[5].context = NULL;
 
         int result = sasl_client_new(
             "mesos",    // Registered name of service.
@@ -168,7 +173,7 @@ public:
     }
 
 protected:
-  virtual void initialze()
+  virtual void initialize()
   {
     // Anticipate mechanisms and steps from the server
     install<AuthenticationMechanismsMessage>(
@@ -333,6 +338,19 @@ private:
     *secret = static_cast<sasl_secret_t*>(context);
     return SASL_OK;
   }
+
+  // static int getpath(
+  //  void *context,
+  //  const char ** path)
+  // {
+  //  if (! path)
+  //    return SASL_BADPARAM;
+
+  // TODO(tanderegg): Modify makefile.ac to determine this
+  // *path = "/usr/lib/sasl2";
+
+//    return SASL_OK;
+//  }
 
   const Credential credential;
 

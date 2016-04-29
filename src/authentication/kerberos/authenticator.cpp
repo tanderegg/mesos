@@ -154,6 +154,7 @@ public:
         message.add_mechanisms(mechanism);
       }
 
+      VLOG(1) << "Sending AuthenticationMechanismsMessage to " << pid;
       send(pid, message);
 
       status = STARTING;
