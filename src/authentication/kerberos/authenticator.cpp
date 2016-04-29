@@ -30,11 +30,10 @@
 #include <process/protobuf.hpp>
 
 #include <stout/check.hpp>
-#include <stout/ashmap.hpp>
+#include <stout/hashmap.hpp>
 #include <stout/lambda.hpp>
 
 #include "authenticator.hpp"
-#include "authentication/kerberos/auxprop.hpp"
 #include "messages/messages.hpp"
 
 // We need to disable the deprecation warnings as Apple has decided
@@ -53,7 +52,7 @@ using namespace process;
 using std::string;
 
 class KerberosAuthenticatorSessionProcess :
-  public ProtobufProcess<KerberossAutheneticatorsessionProcess>
+  public ProtobufProcess<KerberosAuthenticatorSessionProcess>
 {
 public:
   explicit KerberosAuthenticatorSessionProcess(const UPID& _pid)
@@ -136,7 +135,7 @@ public:
 
       if (result != SASL_OK) {
         string error = "Failed to get list of mechanisms: ";
-        LOG(WARNING) << error < <sasl_errstring(result, NULL, NULL);
+        LOG(WARNING) << error << sasl_errstring(result, NULL, NULL);
         AuthenticationErrorMessage message;
         error += sasl_errdetail(connection);
         message.set_error(error);
@@ -146,7 +145,7 @@ public:
         return promise.future();
       }
 
-      std::vector<string> mechanism = strings::tokenize(output, ",");
+      std::vector<string> mechanisms = strings::tokenize(output, ",");
 
       // Send authentication mechanisms.
       AuthenticationMechanismsMessage message;
@@ -170,7 +169,7 @@ public:
     link(pid); // Don't bother waiting for a lost authenticatee.
 
     // Anticipate start and steps messages from the client.
-    install<AuthentcationStartMessage>(
+    install<AuthenticationStartMessage>(
       &KerberosAuthenticatorSessionProcess::start,
       &AuthenticationStartMessage::mechanism,
       &AuthenticationStartMessage::data);
@@ -271,7 +270,7 @@ private:
 
   // Callback for cannonicalizing the username(principal). We use it
   // to record the principal in KerberosAuthenticator.
-  static int canonicalize(
+  static int cannonicalize(
     sasl_conn_t* connection,
     void* context,
     const char* input,
@@ -397,7 +396,7 @@ public:
 
   Future<Option<string>> authenticate(const UPID& pid)
   {
-    VLOG(1) << "Starting authenticatioo session for " << pid;
+    VLOG(1) << "Starting authentication session for " << pid;
 
     if (sessions.contains(pid)) {
       return Failure("authentication session already active");
@@ -457,7 +456,7 @@ Try<Nothing> KerberosAuthenticator::initialize(
 
   // Initialize SASL and add the auxiliary memory plugin.  We must
   // not do this more than once per os-process.
-  if (!initialzie->once()) {
+  if (!initialize->once()) {
     LOG(INFO) << "Initializing server SASL";
 
     int result = sasl_server_init(NULL, "mesos");
@@ -468,7 +467,7 @@ Try<Nothing> KerberosAuthenticator::initialize(
           sasl_errstring(result, NULL, NULL));
     }
 
-    initialze->done();
+    initialize->done();
   }
 
   if (error->isSome()) {

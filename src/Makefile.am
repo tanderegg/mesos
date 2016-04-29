@@ -640,6 +640,8 @@ libmesos_no_3rdparty_la_SOURCES +=					\
   authentication/cram_md5/authenticatee.cpp				\
   authentication/cram_md5/authenticator.cpp				\
   authentication/cram_md5/auxprop.cpp					\
+  authentication/kerberos/authenticatee.cpp       \
+  authentication/kerberos/authenticator.cpp       \
   authentication/http/basic_authenticator_factory.cpp			\
   authorizer/acls.cpp							\
   authorizer/authorizer.cpp						\

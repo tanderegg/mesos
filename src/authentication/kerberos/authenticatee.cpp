@@ -85,7 +85,7 @@ public:
         static Once* initialize = new Once();
         static bool initialized = false;
 
-        if (!initalize->once()) {
+        if (!initialize->once()) {
           LOG(INFO) << "Initializing client SASL";
           int result = sasl_client_init(NULL);
           if (result != SASL_OK) {
@@ -102,7 +102,7 @@ public:
         }
 
         if (!initialized) {
-          promise.faile("Failed to initialize SASL");
+          promise.fail("Failed to initialize SASL");
           return promise.future();
         }
 
@@ -118,11 +118,18 @@ public:
 
         callbacks[1].id = SASL_CB_USER;
         callbacks[1].proc = (int(*)()) &user;
-        callbacks[1].context = (void*) credential.principal().c_str()
+        callbacks[1].context = (void*) credential.principal().c_str();
 
+        // NOTE: Some SASL mechanisms do not allow/enable "proxying",
+        // i.e., authorization. Therefore, some mechanisms send _only_ the
+        // authoriation name rather than both the user (authentication
+        // name) and authorization name. Thus, for now, we assume
+        // authorization is handled out of band. Consider the
+        // SASL_NEED_PROXY flag if we want to reconsider this in the
+        // future.
         callbacks[2].id = SASL_CB_AUTHNAME;
         callbacks[2].proc = (int(*)()) &user;
-        callbacks[2].context = (void*) secret;
+        callbacks[2].context = (void*) credential.principal().c_str();
 
         callbacks[3].id = SASL_CB_PASS;
         callbacks[3].proc = (int(*)()) &pass;
@@ -164,7 +171,7 @@ protected:
   virtual void initialze()
   {
     // Anticipate mechanisms and steps from the server
-    install<AuthenticationMecanismsMessage>(
+    install<AuthenticationMechanismsMessage>(
       &KerberosAuthenticateeProcess::mechanisms,
       &AuthenticationMechanismsMessage::mechanisms);
 
@@ -178,7 +185,7 @@ protected:
     install<AuthenticationFailedMessage>(
       &KerberosAuthenticateeProcess::failed);
 
-    install<AuthentcationErrorMessage>(
+    install<AuthenticationErrorMessage>(
       &KerberosAuthenticateeProcess::error,
       &AuthenticationErrorMessage::error);
   }
@@ -240,7 +247,7 @@ protected:
     LOG(INFO) << "Received SASL authentication step";
 
     sasl_interact_t* interact = NULL;
-    const char output = NULL;
+    const char* output = NULL;
     unsigned length = 0;
 
     int result = sasl_client_step(
@@ -272,7 +279,7 @@ protected:
   void completed()
   {
     if (status != STEPPING) {
-      status = ERRORl;
+      status = ERROR;
       promise.fail("Unexpected authentication 'completed' received");
       return;
     }
@@ -307,6 +314,20 @@ private:
       int id,
       const char** result,
       unsigned* length)
+  {
+    CHECK(SASL_CB_USER == id || SASL_CB_AUTHNAME == id);
+    *result = static_cast<const char*>(context);
+    if (length != NULL) {
+      *length = strlen(*result);
+    }
+    return SASL_OK;
+  }
+
+  static int pass(
+      sasl_conn_t* connection,
+      void* context,
+      int id,
+      sasl_secret_t** secret)
   {
     CHECK_EQ(SASL_CB_PASS, id);
     *secret = static_cast<sasl_secret_t*>(context);
@@ -344,7 +365,7 @@ Try<Authenticatee*> KerberosAuthenticatee::create()
 
 KerberosAuthenticatee::KerberosAuthenticatee() : process(NULL) {}
 
-KerberosAuthenticatee::!~KerberosAuthenticatee()
+KerberosAuthenticatee::~KerberosAuthenticatee()
 {
   if (process != NULL) {
     terminate(process);
