@@ -75,7 +75,20 @@
           <% if yield_content(:page_title) == "Documentation" %>
           <li><a href="/documentation/latest/"><%= yield_content :page_title %></a></li>
           <% else %>
-          <li><a href="/<%= yield_content(:page_title).downcase %>/"><%= yield_content :page_title %></a></li>
+          <li>
+            <a href="/<%= yield_content(:page_title).downcase %>/"><%= yield_content :page_title %></a>
+          </li>
+          <li>
+            <select id="version-select">
+              <option value=""></option>
+              <option value="latest">latest</option>
+              <% data.releases.versions.each do |version| %>
+                <% if version.docs != false %>
+                <option value="<%= version.version %>"><%= version.version %></option>
+                <% end %>
+              <% end %>
+            </select>
+          </li>
           <% end %>
           <% end %>
         </ul><!-- /.breadcrumb -->
@@ -113,6 +126,7 @@
     <%= javascript_include_tag '//code.jquery.com/jquery-1.11.0.min.js' %>
     <%= javascript_include_tag '//netdna.bootstrapcdn.com/bootstrap/3.1.1/js/bootstrap.min.js' %>
     <%= javascript_include_tag '//cdnjs.cloudflare.com/ajax/libs/anchor-js/4.1.0/anchor.min.js' %>
+    <%= javascript_include_tag 'versions.js' %>
 
     <!-- Inject anchors for all headings on the page, see https://www.bryanbraun.com/anchorjs. -->
     <script type="text/javascript">

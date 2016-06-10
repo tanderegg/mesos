@@ -158,6 +158,9 @@ versions:
 ##                 after we create the ReleaseNote for 0.28.1, we get the link:
 ##                 https://issues.apache.org/jira/secure/ReleaseNote.jspa?projectId=12311242&version=12335359.
 ##                 At here, 12335359 is the jira_version of 0.28.1.
+##   docs (optional): This flag is used to exclude versions from the website
+##                    that do not have documentation, i.e. < 0.16, or do not
+##                    have a git tag.
   - version: 1.5.0
     jira_version: 12341286
   - version: 1.2.3
@@ -230,37 +233,55 @@ versions:
     jira_version: 12329855
   - version:  0.22.0
     jira_version: 12328650
+    docs: false
   - version:  0.21.2
     jira_version: 12333646
+    docs: false
   - version:  0.21.1
     jira_version: 12329076
+    docs: false
   - version:  0.21.0
     jira_version: 12327045
+    docs: false
   - version:  0.20.0
     jira_version: 12326835
+    docs: false
   - version:  0.19.1
     jira_version: 12327173
+    docs: false
   - version:  0.19.0
     jira_version: 12326253
+    docs: false
   - version:  0.18.2
     jira_version: 12326851
+    docs: false
   - version:  0.18.1
     jira_version: 12326752
+    docs: false
   - version:  0.18.0
     jira_version: 12326140
+    docs: false
   - version:  0.17.0
     jira_version: 12325669
+    docs: false
   - version:  0.16.0
     jira_version: 12325295
+    docs: false
   - version:  0.15.0
     jira_version: 12324901
+    docs: false
   - version:  0.14.2
     jira_version: 12325324
+    docs: false
   - version:  0.14.1
     jira_version: 12324994
+    docs: false
   - version:  0.14.0
     jira_version: 12311242
+    docs: false
   - version:  0.13.0
     jira_version: 12311242
+    docs: false
   - version:  0.12.1
     jira_version: 12324794
+    docs: false

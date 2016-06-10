@@ -1,6 +1,8 @@
 require 'rubygems'
 require 'rake/clean'
 require 'fileutils'
+require 'git'
+require 'yaml'
 
 task :default => [:update_docs, :doxygen, :javadoc, :build, :clean]
 
@@ -9,7 +11,7 @@ CLEAN.include("**/.DS_Store")
 desc "Build the website from source"
 task :build do
   puts "Building website from static source"
-  result = system("middleman build --clean")
+  result = system("middleman build --clean --verbose")
   if result
     puts "Successfully generated the site, please commit your changes"
   else
@@ -19,55 +21,79 @@ end
 
 desc "Update the latest docs from the Apache Mesos codebase"
 task :update_docs do
-  puts "Updating latest documentation from the Apache Mesos codebase"
+  def generate_docs(version)
+    puts "Generating docs for version #{version}"
+    docs_dir = File.join(File.dirname(__FILE__), "source/documentation")
 
-  docs_dir = File.join(File.dirname(__FILE__), "source/documentation")
+    FileUtils.mkdir_p("source/documentation/#{version}/")
+    FileUtils.rm_rf(Dir.glob("source/documentation/#{version}/*"))
+    FileUtils.cp_r(FileList['../docs/**'].exclude("../docs/images"), File.expand_path("source/documentation/#{version}/"))
 
-  puts "Updating docs to the latest version"
-  FileUtils.mkdir_p("source/documentation/latest/")
-  FileUtils.rm_rf(Dir.glob("source/documentation/latest/*"))
-  FileUtils.cp_r(FileList['../docs/**'].exclude("../docs/images"), File.expand_path("source/documentation/latest/"))
-
-  # Due to a limitation in middleman, it doesn't support .md files
-  # named (e.g.  state.json.md). Middlman would generate an *html* file
-  # called state.json from this instead of generating the standard
-  # state.json/index.html like it does for other .md files.
-  puts "Migrating markdown files with paths matching **/*.json.md to **/*.json/index.md"
-  Dir.chdir("#{docs_dir}/latest/") {
-    Dir.glob('**/*.json.md').each { |doc|
-      docdir = doc.chomp(".md")
-      FileUtils.mkdir(docdir)
-      FileUtils.mv(doc, docdir + "/index.md")
+    # Due to a limitation in middleman, it doesn't support .md files
+    # named (e.g.  state.json.md). Middlman would generate an *html* file
+    # called state.json from this instead of generating the standard
+    # state.json/index.html like it does for other .md files.
+    puts "Migrating markdown files with paths matching **/*.json.md to **/*.json/index.md"
+    Dir.chdir("#{docs_dir}/#{version}/") {
+      Dir.glob('**/*.json.md').each { |doc|
+        docdir = doc.chomp(".md")
+        FileUtils.mkdir(docdir)
+        FileUtils.mv(doc, docdir + "/index.md")
+      }
     }
-  }
 
-  puts "Parse documentation files to removing md extension in any links"
-  Dir.chdir("#{docs_dir}/latest/") {
-    Dir.glob('**/*.md').each { |doc|
-      puts "working on: #{doc}"
+    puts "Parse documentation files to removing md extension in any links"
+    Dir.chdir("#{docs_dir}/#{version}/") {
+      Dir.glob('**/*.md').each { |doc|
+        puts "Working on version #{version} of #{doc}..."
 
-      # TODO(klueska): we really need to get rid of this complicated
-      # regular expression and add in some logic that is more easily
-      # understood.
-      docdir = File.dirname(doc)
-      IO.write(doc, File.open(doc) { |f|
-        f.read
-          .gsub(/\((?!http)([^(]+?)(?:\/index)?\.md(\#.+?)?\)/, "(/documentation/latest/#{docdir}/" + '\1/\2)')
-          .gsub(/<a href=\"([^\/]+)\.md\">/, "<a href=\"/documentation/latest/#{docdir}/" + '\1/\2">')
-          .gsub(/\(images\/(.*)\)/, '(/assets/img/documentation/\1)')
-      })
+        # TODO(klueska): we really need to get rid of this complicated
+        # regular expression and add in some logic that is more easily
+        # understood.
+        docdir = File.dirname(doc)
+        IO.write(doc, File.open(doc) { |f|
+          f.read
+            .gsub(/\(([^(]+?)(?:\/index)?\.md(\#.+?)?\)/, "(/documentation/#{version}/#{docdir}/" + '\1/\2)')
+            .gsub(/\(images\/(.*)\)/, '(/assets/img/documentation/\1)')
+            .gsub(/(?<![.*\..*])\/documentation\/latest\//, "\1/documentation/#{version}/")  # Some versions have "latest" hard coded instead of their version number
+        })
+      }
     }
-  }
 
-  puts "Moving documentation index to its own 'latest' directory"
-  FileUtils.mv("source/documentation/latest/home.md", "source/documentation/latest.html.md")
+    puts "Moving documentation index to its own '#{version}' directory"
+    FileUtils.mv("source/documentation/#{version}/home.md", "source/documentation/#{version}.html.md")
+  end
 
-  puts "Documentation updated"
+  puts "Updating documentation from the Apache Mesos codebase"
+  generate_docs('latest')
+
+  git = Git.open('../')
+  original_branch = git.current_branch
+
+  # Retrieve versions to generate docs for from releases.yml
+  releases = YAML.load_file('data/releases.yml')
+
+  for version in releases["versions"] do
+    # Always restore to the original branch in case of error
+    if version.fetch("docs", true)
+      begin
+        git.checkout(version["version"])
+        generate_docs(version["version"])
+      rescue Git::GitExecuteError => e
+        puts "Could not checkout version #{version["version"]}, please set `docs: false` in releases.yml."
+        raise e
+      ensure
+        git.checkout(original_branch)
+      end
+    end
+  end
 
   # Copy the images from the docs
   FileUtils.mkdir_p("source/assets/img/documentation/")
   FileUtils.rm_f(Dir.glob("source/assets/img/documentation/*"))
   FileUtils.cp_r(Dir.glob("../docs/images/*"), File.expand_path("source/assets/img/documentation/"))
+
+  puts "Documentation updated"
 end
 
 desc "Generate javadoc from the Java source files in the codebase"
