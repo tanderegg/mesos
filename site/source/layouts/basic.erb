@@ -75,7 +75,17 @@
           <% if yield_content(:page_title) == "Documentation" %>
           <li><a href="/documentation/latest/"><%= yield_content :page_title %></a></li>
           <% else %>
-          <li><a href="/<%= yield_content(:page_title).downcase %>/"><%= yield_content :page_title %></a></li>
+          <li>
+            <a href="/<%= yield_content(:page_title).downcase %>/"><%= yield_content :page_title %></a>
+             <select id="version-select">
+               <option value="latest">latest</option>
+               <% data.releases.versions.each do |version| %>
+                 <% if version.docs %>
+                 <option value="<%= version.version %>"><%= version.version %></option>
+                 <% end %>
+               <% end %>
+             </select>
+          </li>
           <% end %>
           <% end %>
         </ul><!-- /.breadcrumb -->
@@ -112,5 +122,6 @@
     <!-- JS -->
     <%= javascript_include_tag '//code.jquery.com/jquery-1.11.0.min.js' %>
     <%= javascript_include_tag '//netdna.bootstrapcdn.com/bootstrap/3.1.1/js/bootstrap.min.js' %>
+    <%= javascript_include_tag 'versions.js' %>
   </body>
 </html>

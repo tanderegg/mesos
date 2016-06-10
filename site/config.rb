@@ -44,10 +44,10 @@ page "/index.html", :layout => "basic"
 page "/documentation/*", :layout => "documentation"
 proxy "/documentation/index.html", "/documentation/latest.html", :layout => "documentation"
 proxy "/gettingstarted/index.html", "/documentation/latest/getting-started.html", :layout => "documentation"
-latest_doc_pages = Dir.glob("./source/documentation/latest/*.md")
+latest_doc_pages = Dir.glob("./source/documentation/latest/**/*.md")
 latest_doc_pages.each do |page_path|
-  page_name = File.basename(page_path, '.md')
-  proxy "/documentation/#{page_name}.html", "/documentation/latest/#{page_name}.html", :layout => "documentation"
+  page = /(latest)\/?([A-Za-z0-9\-\_\/\.\+]*)(\.md)/.match(page_path)[2]
+  proxy "/documentation/#{page}.html", "/documentation/latest/#{page}.html", :layout => "documentation"
 end
 
 page "/sitemap.xml", :layout => false
