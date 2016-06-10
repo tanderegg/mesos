@@ -10,6 +10,16 @@ Documentation
 
     <h4>If you'd like to get involved or you're looking for support</h4>
     <p>See our <a href="/community/">community</a> page for more details.</p>
+
+    <label>Mesos Version:&nbsp;</label>
+    <select id="version-select">
+      <option value="latest">latest</option>
+      <% data.releases.versions.each do |version| %>
+        <% if version.docs %>
+        <option value="<%= version.version %>"><%= version.version %></option>
+        <% end %>
+      <% end %>
+    </select>
   </div>
   <div class="col-md-8">
     <% if current_page.parent %>
