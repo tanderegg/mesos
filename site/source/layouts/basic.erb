@@ -77,6 +77,9 @@
           <% else %>
           <li>
             <a href="/<%= yield_content(:page_title).downcase %>/"><%= yield_content :page_title %></a>
+          </li>
+          <li>
+            Version:
              <select id="version-select">
                <option value="latest">latest</option>
                <% data.releases.versions.each do |version| %>

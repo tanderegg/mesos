@@ -30,6 +30,16 @@ img {
   margin: auto;
 }
 
+.topnav .breadcrumb select#version-select {
+  border: 0px;
+  outline: 0px;
+  background: none;
+}
+
+.topnav .breadcrumb select#version-select option {
+  padding: 5px 8px;
+}
+
 .topnav a {
   color: #183751;
 }
