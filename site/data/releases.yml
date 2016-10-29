@@ -96,11 +96,15 @@ versions:
 ##                 after we create the ReleaseNote for 0.28.1, we get the link:
 ##                 https://issues.apache.org/jira/secure/ReleaseNote.jspa?projectId=12311242&version=12335359.
 ##                 At here, 12335359 is the jira_version of 0.28.1.
+##   docs: Whether or not to display this version in the documentation version
+##         select box.  Some older versions do not have documentation, and
+##         sometimes there may be tags for versions that are not yet released.
   - version: 1.0.1
     jira_version: 12335956
     docs: true
   - version: 1.0.0
     jira_version: 12324944
+    docs: true
   - version: 0.28.2
     jira_version: 12335646
     docs: true
